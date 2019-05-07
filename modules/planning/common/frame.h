@@ -24,6 +24,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -227,6 +228,8 @@ class Frame {
   std::vector<routing::LaneWaypoint> future_route_waypoints_;
 
   common::monitor::MonitorLogBuffer monitor_logger_buffer_;
+
+  std::tuple<bool, double, double, double> pull_over_info_;
 };
 
 class FrameHistory : public IndexedQueue<uint32_t, Frame> {

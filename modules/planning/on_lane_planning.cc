@@ -16,6 +16,7 @@
 
 #include "modules/planning/on_lane_planning.h"
 
+#include <limits>
 #include <list>
 #include <utility>
 
@@ -63,7 +64,7 @@ OnLanePlanning::~OnLanePlanning() {
   }
   planner_->Stop();
   FrameHistory::Instance()->Clear();
-  PlanningContext::MutablePlanningStatus()->Clear();
+  PlanningContext::Instance()->mutable_planning_status()->Clear();
   last_routing_.Clear();
   EgoInfo::Instance()->Clear();
 }
@@ -87,7 +88,7 @@ Status OnLanePlanning::Init(const PlanningConfig& config) {
       << FLAGS_traffic_rule_config_filename;
 
   // clear planning status
-  PlanningContext::MutablePlanningStatus()->Clear();
+  PlanningContext::Instance()->mutable_planning_status()->Clear();
 
   // load map
   hdmap_ = HDMapUtil::BaseMapPtr();
@@ -182,6 +183,10 @@ void OnLanePlanning::RunOnce(const LocalView& local_view,
                              ADCTrajectory* const ptr_trajectory_pb) {
   local_view_ = local_view;
   const double start_timestamp = Clock::NowInSeconds();
+  const double start_system_timestamp =
+      std::chrono::duration<double>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
 
   // localization
   ADEBUG << "Get localization:"
@@ -223,7 +228,7 @@ void OnLanePlanning::RunOnce(const LocalView& local_view,
 
   if (util::IsDifferentRouting(last_routing_, *local_view_.routing)) {
     last_routing_ = *local_view_.routing;
-    PlanningContext::MutablePlanningStatus()->Clear();
+    PlanningContext::Instance()->mutable_planning_status()->Clear();
     reference_line_provider_->UpdateRoutingResponse(*local_view_.routing);
   }
 
@@ -301,7 +306,12 @@ void OnLanePlanning::RunOnce(const LocalView& local_view,
   for (const auto& p : ptr_trajectory_pb->trajectory_point()) {
     ADEBUG << p.DebugString();
   }
-  const auto time_diff_ms = (Clock::NowInSeconds() - start_timestamp) * 1000;
+  const auto end_system_timestamp =
+      std::chrono::duration<double>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  const auto time_diff_ms =
+      (end_system_timestamp - start_system_timestamp) * 1000;
   ADEBUG << "total planning time spend: " << time_diff_ms << " ms.";
 
   ptr_trajectory_pb->mutable_latency_stats()->set_total_time_ms(time_diff_ms);
@@ -366,6 +376,47 @@ void OnLanePlanning::ExportReferenceLineDebug(planning_internal::Debug* debug) {
     rl_debug->set_is_drivable(reference_line_info.IsDrivable());
     rl_debug->set_is_protected(reference_line_info.GetRightOfWayStatus() ==
                                ADCTrajectory::PROTECTED);
+
+    // average kappa and dkappa for performance evaluation
+    const auto& reference_points =
+        reference_line_info.reference_line().reference_points();
+    double total_kappa = 0.0;
+    double total_dkappa = 0.0;
+    size_t reference_points_size = reference_points.size();
+    for (const auto& reference_point : reference_points) {
+      total_kappa += reference_point.kappa();
+      total_dkappa += reference_point.dkappa();
+    }
+    rl_debug->set_average_kappa(total_kappa /
+                                static_cast<double>(reference_points_size));
+    rl_debug->set_average_dkappa(total_dkappa /
+                                 static_cast<double>(reference_points_size));
+
+    bool is_off_road = false;
+    double minimum_boundary = std::numeric_limits<double>::infinity();
+
+    const double adc_half_width =
+        common::VehicleConfigHelper::GetConfig().vehicle_param().width() / 2.0;
+    const auto& reference_line_path =
+        reference_line_info.reference_line().GetMapPath();
+    const auto sample_s = 0.1;
+    const auto reference_line_length =
+        reference_line_info.reference_line().Length();
+    for (double s = 0.0; s < reference_line_length; s += sample_s) {
+      double left_width = reference_line_path.GetLaneLeftWidth(s);
+      double right_width = reference_line_path.GetLaneRightWidth(s);
+      if (left_width < adc_half_width || right_width < adc_half_width) {
+        is_off_road = true;
+      }
+      if (left_width < minimum_boundary) {
+        minimum_boundary = left_width;
+      }
+      if (right_width < minimum_boundary) {
+        minimum_boundary = right_width;
+      }
+    }
+    rl_debug->set_is_offroad(is_off_road);
+    rl_debug->set_minimum_boundary(minimum_boundary);
   }
 }
 
@@ -657,9 +708,9 @@ void OnLanePlanning::AddOpenSpaceOptimizerResult(
   smoothed_line->set_label("Smooth");
   size_t adc_label = 0;
   for (const auto& point : smoothed_trajectory.vehicle_motion_point()) {
-    const auto& x = point.trajectory_point().path_point().x();
-    const auto& y = point.trajectory_point().path_point().y();
-    const auto& heading = point.trajectory_point().path_point().theta();
+    const auto x = point.trajectory_point().path_point().x();
+    const auto y = point.trajectory_point().path_point().y();
+    const auto heading = point.trajectory_point().path_point().theta();
 
     // Draw vehicle shape along the trajectory
     auto* adc_shape = chart->add_car();

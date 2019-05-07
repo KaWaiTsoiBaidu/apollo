@@ -202,4 +202,24 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "prediction_thread_pool",
+    srcs = ["prediction_thread_pool.cc"],
+    hdrs = ["prediction_thread_pool.h"],
+    deps = [
+        "//cyber/base",
+        "//cyber/common",
+    ],
+)
+
+cc_test(
+    name = "prediction_thread_pool_test",
+    size = "small",
+    srcs = ["prediction_thread_pool_test.cc"],
+    deps = [
+        ":prediction_thread_pool",
+        "@gtest//:main",
+    ],
+)
+
 cpplint()

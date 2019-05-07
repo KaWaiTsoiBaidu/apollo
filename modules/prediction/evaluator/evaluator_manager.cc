@@ -17,12 +17,14 @@
 #include "modules/prediction/evaluator/evaluator_manager.h"
 
 #include <algorithm>
+#include <unordered_map>
 #include <vector>
 
 #include "modules/common/configs/vehicle_config_helper.h"
 #include "modules/prediction/common/feature_output.h"
 #include "modules/prediction/common/prediction_gflags.h"
 #include "modules/prediction/common/prediction_system_gflags.h"
+#include "modules/prediction/common/prediction_thread_pool.h"
 #include "modules/prediction/container/container_manager.h"
 #include "modules/prediction/container/obstacles/obstacles_container.h"
 #include "modules/prediction/container/pose/pose_container.h"
@@ -40,6 +42,7 @@ namespace prediction {
 
 using apollo::common::adapter::AdapterConfig;
 using apollo::perception::PerceptionObstacle;
+using IdObstacleListMap = std::unordered_map<int, std::list<Obstacle*>>;
 
 namespace {
 
@@ -52,6 +55,27 @@ bool IsTrainable(const Feature& feature) {
     return false;
   }
   return true;
+}
+
+void GroupObstaclesByObstacleId(const int obstacle_id,
+                                ObstaclesContainer* const obstacles_container,
+                                IdObstacleListMap* const id_obstacle_map) {
+  Obstacle* obstacle_ptr = obstacles_container->GetObstacle(obstacle_id);
+  if (obstacle_ptr == nullptr) {
+    AERROR << "Null obstacle [" << obstacle_id << "] found";
+    return;
+  }
+  if (obstacle_ptr->IsStill()) {
+    ADEBUG << "Ignore still obstacle [" << obstacle_id << "]";
+    return;
+  }
+  const Feature& feature = obstacle_ptr->latest_feature();
+  if (feature.priority().priority() == ObstaclePriority::IGNORE) {
+    ADEBUG << "Skip ignored obstacle [" << obstacle_id << "]";
+    return;
+  }
+  int id_mod = obstacle_id % FLAGS_max_thread_num;
+  (*id_obstacle_map)[id_mod].push_back(obstacle_ptr);
 }
 
 }  // namespace
@@ -139,22 +163,38 @@ void EvaluatorManager::Run() {
   }
 
   std::vector<Obstacle*> dynamic_env;
-  for (int id : obstacles_container->curr_frame_considered_obstacle_ids()) {
-    if (id < 0) {
-      ADEBUG << "The obstacle has invalid id [" << id << "].";
-      continue;
-    }
-    Obstacle* obstacle = obstacles_container->GetObstacle(id);
 
-    if (obstacle == nullptr) {
-      continue;
+  if (FLAGS_enable_multi_thread) {
+    IdObstacleListMap id_obstacle_map;
+    for (int id : obstacles_container->curr_frame_considered_obstacle_ids()) {
+      GroupObstaclesByObstacleId(id, obstacles_container, &id_obstacle_map);
     }
-    if (obstacle->IsStill()) {
-      ADEBUG << "Ignore still obstacle [" << id << "] in evaluator_manager";
-      continue;
-    }
+    PredictionThreadPool::ForEach(
+        id_obstacle_map.begin(), id_obstacle_map.end(),
+        [&](IdObstacleListMap::iterator::value_type& obstacles_iter) {
+          // TODO(kechxu): parallelize this level
+          for (auto obstacle_ptr : obstacles_iter.second) {
+            EvaluateObstacle(obstacle_ptr, dynamic_env);
+          }
+        });
+  } else {
+    for (int id : obstacles_container->curr_frame_considered_obstacle_ids()) {
+      if (id < 0) {
+        ADEBUG << "The obstacle has invalid id [" << id << "].";
+        continue;
+      }
+      Obstacle* obstacle = obstacles_container->GetObstacle(id);
 
-    EvaluateObstacle(obstacle, dynamic_env);
+      if (obstacle == nullptr) {
+        continue;
+      }
+      if (obstacle->IsStill()) {
+        ADEBUG << "Ignore still obstacle [" << id << "] in evaluator_manager";
+        continue;
+      }
+
+      EvaluateObstacle(obstacle, dynamic_env);
+    }
   }
 }
 

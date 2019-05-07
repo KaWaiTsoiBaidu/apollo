@@ -20,6 +20,8 @@
 
 #include "modules/planning/open_space/coarse_trajectory_generator/hybrid_a_star.h"
 
+#include "modules/planning/math/piecewise_jerk/path_time_qp_problem.h"
+
 namespace apollo {
 namespace planning {
 
@@ -158,18 +160,18 @@ std::shared_ptr<Node3d> HybridAStar::Next_node_generator(
   double last_x = current_node->GetX();
   double last_y = current_node->GetY();
   double last_phi = current_node->GetPhi();
-  intermediate_x.emplace_back(last_x);
-  intermediate_y.emplace_back(last_y);
-  intermediate_phi.emplace_back(last_phi);
+  intermediate_x.push_back(last_x);
+  intermediate_y.push_back(last_y);
+  intermediate_phi.push_back(last_phi);
   for (size_t i = 0; i < arc / step_size_; ++i) {
-    double next_x = last_x + traveled_distance * std::cos(last_phi);
-    double next_y = last_y + traveled_distance * std::sin(last_phi);
-    double next_phi = common::math::NormalizeAngle(
+    const double next_x = last_x + traveled_distance * std::cos(last_phi);
+    const double next_y = last_y + traveled_distance * std::sin(last_phi);
+    const double next_phi = common::math::NormalizeAngle(
         last_phi +
         traveled_distance / vehicle_param_.wheel_base() * std::tan(steering));
-    intermediate_x.emplace_back(next_x);
-    intermediate_y.emplace_back(next_y);
-    intermediate_phi.emplace_back(next_phi);
+    intermediate_x.push_back(next_x);
+    intermediate_y.push_back(next_y);
+    intermediate_phi.push_back(next_phi);
     last_x = next_x;
     last_y = next_y;
     last_phi = next_phi;
@@ -258,14 +260,26 @@ bool HybridAStar::GetResult(HybridAStartResult* result) {
   (*result).x = hybrid_a_x;
   (*result).y = hybrid_a_y;
   (*result).phi = hybrid_a_phi;
-  if (!GenerateSpeedAcceleration(result)) {
-    AERROR << "GenerateSpeedAcceleration fail";
-    return false;
+
+  if (FLAGS_use_s_curve_speed_smooth) {
+    if (!GenerateSCurveSpeedAcceleration(result)) {
+      AERROR << "GenerateSCurveSpeedAcceleration fail";
+      return false;
+    }
+  } else {
+    if (!GenerateSpeedAcceleration(result)) {
+      AERROR << "GenerateSpeedAcceleration fail";
+      return false;
+    }
   }
+
   if (result->x.size() != result->y.size() ||
       result->x.size() != result->v.size() ||
       result->x.size() != result->phi.size()) {
-    AERROR << "state sizes not equal";
+    AERROR << "state sizes not equal, "
+           << "result->x.size(): " << result->x.size() << "result->y.size()"
+           << result->y.size() << "result->phi.size()" << result->phi.size()
+           << "result->v.size()" << result->v.size();
     return false;
   }
   if (result->a.size() != result->steer.size() ||
@@ -284,32 +298,131 @@ bool HybridAStar::GenerateSpeedAcceleration(HybridAStartResult* result) {
     AERROR << "result size check when generating speed and acceleration fail";
     return false;
   }
-  size_t x_size = result->x.size();
+  const size_t x_size = result->x.size();
   // load velocity from position
-  for (size_t i = 0; i < x_size - 1; ++i) {
-    double discrete_v = ((result->x[i + 1] - result->x[i]) / delta_t_) *
-                            std::cos(result->phi[i]) +
-                        ((result->y[i + 1] - result->y[i]) / delta_t_) *
-                            std::sin(result->phi[i]);
-    result->v.emplace_back(discrete_v);
+  for (size_t i = 0; i + 1 < x_size; ++i) {
+    const double discrete_v = ((result->x[i + 1] - result->x[i]) / delta_t_) *
+                                  std::cos(result->phi[i]) +
+                              ((result->y[i + 1] - result->y[i]) / delta_t_) *
+                                  std::sin(result->phi[i]);
+    result->v.push_back(discrete_v);
   }
-  result->v.emplace_back(0.0);
+  result->v.push_back(0.0);
   // load acceleration from velocity
-  for (size_t i = 0; i < x_size - 1; ++i) {
-    double discrete_a = (result->v[i + 1] - result->v[i]) / delta_t_;
-    result->a.emplace_back(discrete_a);
+  for (size_t i = 0; i + 1 < x_size; ++i) {
+    const double discrete_a = (result->v[i + 1] - result->v[i]) / delta_t_;
+    result->a.push_back(discrete_a);
   }
   // load steering from phi
-  for (size_t i = 0; i < x_size - 1; ++i) {
+  for (size_t i = 0; i + 1 < x_size; ++i) {
     double discrete_steer = (result->phi[i + 1] - result->phi[i]) *
                             vehicle_param_.wheel_base() / step_size_;
-    if (result->v[i] > 0) {
+    if (result->v[i] > 0.0) {
       discrete_steer = std::atan(discrete_steer);
     } else {
       discrete_steer = std::atan(-discrete_steer);
     }
-    result->steer.emplace_back(discrete_steer);
+    result->steer.push_back(discrete_steer);
   }
+  return true;
+}
+
+bool HybridAStar::GenerateSCurveSpeedAcceleration(HybridAStartResult* result) {
+  if (result->x.size() < 2 || result->y.size() < 2 || result->phi.size() < 2) {
+    AERROR << "result size check when generating speed and acceleration fail";
+    return false;
+  }
+
+  const size_t x_size = result->x.size();
+
+  double accumulated_s = 0.0;
+  std::vector<std::tuple<double, double, double>> s_bounds;
+  std::vector<std::tuple<double, double, double>> ds_bounds;
+
+  for (size_t i = 0; i + 1 < x_size; ++i) {
+    const double discrete_v = ((result->x[i + 1] - result->x[i]) / delta_t_) *
+                                  std::cos(result->phi[i]) +
+                              ((result->y[i + 1] - result->y[i]) / delta_t_) *
+                                  std::sin(result->phi[i]);
+
+    accumulated_s += discrete_v * delta_t_;
+
+    result->v.push_back(discrete_v);
+    result->accumulated_s.push_back(accumulated_s);
+    s_bounds.emplace_back(static_cast<double>(i) * delta_t_, accumulated_s - 10,
+                          accumulated_s + 10);
+    ds_bounds.emplace_back(static_cast<double>(i) * delta_t_, discrete_v - 10,
+                           discrete_v + 10);
+  }
+
+  std::array<double, 5> w = {planner_open_space_config_.warm_start_config()
+                                 .s_curve_config()
+                                 .s_weight(),
+                             planner_open_space_config_.warm_start_config()
+                                 .s_curve_config()
+                                 .velocity_weight(),
+                             planner_open_space_config_.warm_start_config()
+                                 .s_curve_config()
+                                 .acc_weight(),
+                             planner_open_space_config_.warm_start_config()
+                                 .s_curve_config()
+                                 .jerk_weight(),
+                             planner_open_space_config_.warm_start_config()
+                                 .s_curve_config()
+                                 .ref_weight()};
+
+  std::array<double, 3> init_s = {result->accumulated_s[0], result->v[0],
+                                  (result->v[1] - result->v[0]) / delta_t_};
+
+  const size_t num_of_knots = x_size - 1;
+  // Start a PathTimeQpProblem
+  std::unique_ptr<PathTimeQpProblem> path_time_qp(new PathTimeQpProblem());
+  path_time_qp->InitProblem(num_of_knots, delta_t_, w, init_s);
+
+  path_time_qp->SetZeroOrderBounds(
+      *(std::min_element(std::begin(result->accumulated_s),
+                         std::end(result->accumulated_s))) -
+          10,
+      *(std::max_element(std::begin(result->accumulated_s),
+                         std::end(result->accumulated_s))) +
+          10);
+  path_time_qp->SetFirstOrderBounds(
+      *(std::min_element(std::begin(result->v), std::end(result->v)) - 10),
+      *(std::max_element(std::begin(result->v), std::end(result->v))) + 10);
+  // TODO(QiL): load this from configs
+  path_time_qp->SetSecondOrderBounds(-4.4, 10.0);
+  path_time_qp->SetThirdOrderBound(FLAGS_longitudinal_jerk_bound);
+  path_time_qp->SetDesireDerivative(0.0);
+
+  path_time_qp->SetZeroOrderReference(result->accumulated_s);
+
+  // Sovle the problem
+  if (!path_time_qp->Optimize()) {
+    std::string msg("Piecewise jerk speed optimizer failed!");
+    AERROR << msg;
+    return false;
+  }
+
+  // Extract output
+  result->v.clear();
+  result->accumulated_s.clear();
+  result->accumulated_s = path_time_qp->x();
+  result->v = path_time_qp->x_derivative();
+  result->v.push_back(0.0);
+  result->a = path_time_qp->x_second_order_derivative();
+
+  // load steering from phi
+  for (size_t i = 0; i + 1 < x_size; ++i) {
+    double discrete_steer = (result->phi[i + 1] - result->phi[i]) *
+                            vehicle_param_.wheel_base() / step_size_;
+    if (result->v[i] > 0.0) {
+      discrete_steer = std::atan(discrete_steer);
+    } else {
+      discrete_steer = std::atan(-discrete_steer);
+    }
+    result->steer.push_back(discrete_steer);
+  }
+
   return true;
 }
 

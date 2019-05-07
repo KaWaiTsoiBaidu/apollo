@@ -152,10 +152,13 @@ void MessageProcess::OnPerception(
       if (obstacle_ptr == nullptr) {
         AERROR << "Null obstacle found.";
         continue;
-      } else if (!obstacle_ptr->latest_feature().IsInitialized()) {
-        AERROR << "Obstacle [" << id << "] has no latest feature.";
-        return;
       }
+      if (!obstacle_ptr->latest_feature().IsInitialized()) {
+        AERROR << "Obstacle [" << id << "] has no latest feature.";
+        continue;
+      }
+      *obstacle_ptr->mutable_latest_feature()->mutable_adc_trajectory_point() =
+          ptr_ego_trajectory_container->adc_trajectory().trajectory_point();
       FeatureOutput::InsertFeatureProto(obstacle_ptr->latest_feature());
       ADEBUG << "Insert feature into feature output";
     }
