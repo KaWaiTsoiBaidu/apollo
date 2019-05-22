@@ -90,12 +90,12 @@ bool YoloObstacleDetector::InitNet(const yolo::YoloParam &yolo_param,
   std::vector<std::string> output_names;
   // init Net
   auto const &net_param = yolo_param.net_param();
-  input_names.push_back(net_param.input_blob());
-  output_names.push_back(net_param.loc_blob());
-  output_names.push_back(net_param.obj_blob());
-  output_names.push_back(net_param.cls_blob());
-  output_names.push_back(net_param.ori_blob());
-  output_names.push_back(net_param.dim_blob());
+  output_names.push_back(net_param.det1_loc_blob());
+  output_names.push_back(net_param.det1_obj_blob());
+  output_names.push_back(net_param.det1_cls_blob());
+  output_names.push_back(net_param.det1_ori_conf_blob());
+  output_names.push_back(net_param.det1_ori_blob());
+  output_names.push_back(net_param.det1_dim_blob());
   output_names.push_back(net_param.lof_blob());
   output_names.push_back(net_param.lor_blob());
   output_names.push_back(net_param.brvis_blob());
@@ -132,7 +132,7 @@ bool YoloObstacleDetector::InitNet(const yolo::YoloParam &yolo_param,
 }
 
 void YoloObstacleDetector::InitYoloBlob(const yolo::NetworkParam &net_param) {
-  auto obj_blob = inference_->get_blob(net_param.obj_blob());
+  auto obj_blob = inference_->get_blob(net_param.det1_obj_blob());
   int output_height = obj_blob->shape(1);
   int output_width = obj_blob->shape(2);
   int obj_size =
@@ -159,16 +159,20 @@ void YoloObstacleDetector::InitYoloBlob(const yolo::NetworkParam &net_param) {
 
   image_.reset(new base::Image8U(height_, width_, base::Color::RGB));
 
-  yolo_blobs_.loc_blob =
-      inference_->get_blob(yolo_param_.net_param().loc_blob());
-  yolo_blobs_.obj_blob =
-      inference_->get_blob(yolo_param_.net_param().obj_blob());
-  yolo_blobs_.cls_blob =
-      inference_->get_blob(yolo_param_.net_param().cls_blob());
-  yolo_blobs_.ori_blob =
-      inference_->get_blob(yolo_param_.net_param().ori_blob());
-  yolo_blobs_.dim_blob =
-      inference_->get_blob(yolo_param_.net_param().dim_blob());
+  yolo_blobs_.det1_loc_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_loc_blob());
+  yolo_blobs_.det1_obj_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_obj_blob());
+  yolo_blobs_.det1_cls_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_cls_blob());
+  yolo_blobs_.det1_ori_conf_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_ori_conf_blob());
+  yolo_blobs_.det1_ori_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_ori_blob());
+  yolo_blobs_.det1_dim_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_dim_blob());
+
+/**
   yolo_blobs_.lof_blob =
       inference_->get_blob(yolo_param_.net_param().lof_blob());
   yolo_blobs_.lor_blob =
@@ -193,6 +197,7 @@ void YoloObstacleDetector::InitYoloBlob(const yolo::NetworkParam &net_param) {
       inference_->get_blob(yolo_param_.net_param().visible_ratio_blob());
   yolo_blobs_.cut_off_ratio_blob =
       inference_->get_blob(yolo_param_.net_param().cut_off_ratio_blob());
+***/
 }
 
 bool YoloObstacleDetector::Init(const ObstacleDetectorInitOptions &options) {

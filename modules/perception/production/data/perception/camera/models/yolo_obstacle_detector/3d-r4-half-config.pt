@@ -1,14 +1,14 @@
 model_param {
   model_name: "./3d-r4-half"
-  model_type: "RTNetInt8"
-  weight_file: "deploy.model"
-  proto_file: "deploy.pt"
+  model_type: "CaffeNet"
+  weight_file: "caffe.caffemodel"
+  proto_file: "my_deploy.pt"
   anchors_file: "anchors.txt"
   types_file: "types.txt"
   calibratetable_root: "./3d-r4-half"
   confidence_threshold: 0.4
-  offset_ratio: 0.288889
-  cropped_ratio: 0.711111
+  offset_ratio: 0.0 #0.288889
+  cropped_ratio: 1.0 #0.711111
   resized_width: 1440
   aligned_pixel: 32
   min_2d_height: 10
@@ -17,19 +17,32 @@ model_param {
   with_box3d: true
   light_swt_conf_threshold: 0
   light_vis_conf_threshold: 0
-  with_lights: true
+  # with_lights: true
   with_ratios: false
   # num_areas: 4
   border_ratio: 0.01
 }
 net_param {
-  loc_blob: "loc_pred"
-  obj_blob: "obj_pred"
-  cls_blob: "cls_pred"
-  ori_blob: "ori_pred"
-  dim_blob: "dim_pred"
+  det1_loc_blob: "detect1_loc_pred"
+  det1_obj_blob: "detect1_obj_pred"
+  det1_cls_blob: "detect1_cls_pred"
+  det1_ori_conf_blob: "detect1_ori_conf_pred"
+  det1_ori_blob: "detect1_ori_pred"
+  det1_dim_blob: "detect1_dim_pred"
+  det2_loc_blob: "detect2_loc_pred"
+  det2_obj_blob: "detect2_obj_pred"
+  det2_cls_blob: "detect2_cls_pred"
+  det2_ori_conf_blob: "detect2_ori_conf_pred"
+  det2_ori_blob: "detect2_ori_pred"
+  det2_dim_blob: "detect2_dim_pred"
+  det3_loc_blob: "detect3_loc_pred"
+  det3_obj_blob: "detect3_obj_pred"
+  det3_cls_blob: "detect3_cls_pred"
+  det3_ori_conf_blob: "detect3_ori_conf_pred"
+  det3_ori_blob: "detect3_ori_pred"
+  det3_dim_blob: "detect3_dim_pred"
   input_blob: "data"
-  feat_blob: "conv3_3"
+  feat_blob: "layer12-shortcut"
 }
 nms_param {
   type: "NormalNMS"

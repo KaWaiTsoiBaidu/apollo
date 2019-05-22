@@ -440,21 +440,21 @@ void get_objects_gpu(const YoloBlobs &yolo_blobs,
                      base::Blob<int> *idx_sm,
                      std::vector<base::ObjectPtr> *objects) {
   int num_classes = types.size();
-  int batch = yolo_blobs.obj_blob->shape(0);
-  int height = yolo_blobs.obj_blob->shape(1);
-  int width = yolo_blobs.obj_blob->shape(2);
+  int batch = yolo_blobs.det1_obj_blob->shape(0);
+  int height = yolo_blobs.det1_obj_blob->shape(1);
+  int width = yolo_blobs.det1_obj_blob->shape(2);
   int num_anchor = yolo_blobs.anchor_blob->shape(2);
   int num_candidates = height * width * num_anchor;
 
   CHECK_EQ(batch, 1) << "batch size should be 1!";
-  const float *loc_data = yolo_blobs.loc_blob->gpu_data();
-  const float *obj_data = yolo_blobs.obj_blob->gpu_data();
-  const float *cls_data = yolo_blobs.cls_blob->gpu_data();
+  const float *loc_data = yolo_blobs.det1_loc_blob->gpu_data();
+  const float *obj_data = yolo_blobs.det1_obj_blob->gpu_data();
+  const float *cls_data = yolo_blobs.det1_cls_blob->gpu_data();
 
   const float *ori_data = get_gpu_data(
-          model_param.with_box3d(), *yolo_blobs.ori_blob);
+          model_param.with_box3d(), *yolo_blobs.det1_ori_blob);
   const float *dim_data = get_gpu_data(
-          model_param.with_box3d(), *yolo_blobs.dim_blob);
+          model_param.with_box3d(), *yolo_blobs.det1_dim_blob);
 
   const float *lof_data = get_gpu_data(
           model_param.with_frbox(), *yolo_blobs.lof_blob);
