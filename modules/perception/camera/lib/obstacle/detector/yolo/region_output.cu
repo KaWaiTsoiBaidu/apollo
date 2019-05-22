@@ -133,6 +133,7 @@ __global__ void get_object_kernel(int n,
     float max_prob = 0.f;
     int max_index = 0;
     for (int k = 0; k < num_classes; ++k) {
+      printf("max_prob: %f\n", cls_data[offset_cls + k]);
       float prob = cls_data[offset_cls + k] * scale;
       res_cls_data[k * width * height * num_anchors + i] = prob;
       if (prob > max_prob) {
@@ -140,6 +141,10 @@ __global__ void get_object_kernel(int n,
         max_index = k;
       }
     }
+    //printf("======scale: %f\n", scale);
+    printf("======cx: %f\n", loc_data[offset_loc + 0]);
+    //printf("======cy: %f\n", loc_data[offset_loc + 1]);
+    //printf("======hw: %f\n", loc_data[offset_loc + 2]);
     res_cls_data[num_classes * width * height * num_anchors + i] = max_prob;
 
     auto &&dst_ptr = res_box_data + i * box_block;
@@ -440,21 +445,21 @@ void get_objects_gpu(const YoloBlobs &yolo_blobs,
                      base::Blob<int> *idx_sm,
                      std::vector<base::ObjectPtr> *objects) {
   int num_classes = types.size();
-  int batch = yolo_blobs.obj_blob->shape(0);
-  int height = yolo_blobs.obj_blob->shape(1);
-  int width = yolo_blobs.obj_blob->shape(2);
+  int batch = yolo_blobs.det1_obj_blob->shape(0);
+  int height = yolo_blobs.det1_obj_blob->shape(1);
+  int width = yolo_blobs.det1_obj_blob->shape(2);
   int num_anchor = yolo_blobs.anchor_blob->shape(2);
   int num_candidates = height * width * num_anchor;
 
   CHECK_EQ(batch, 1) << "batch size should be 1!";
-  const float *loc_data = yolo_blobs.loc_blob->gpu_data();
-  const float *obj_data = yolo_blobs.obj_blob->gpu_data();
-  const float *cls_data = yolo_blobs.cls_blob->gpu_data();
+  const float *loc_data = yolo_blobs.det1_loc_blob->gpu_data();
+  const float *obj_data = yolo_blobs.det1_obj_blob->gpu_data();
+  const float *cls_data = yolo_blobs.det1_cls_blob->gpu_data();
 
   const float *ori_data = get_gpu_data(
-          model_param.with_box3d(), *yolo_blobs.ori_blob);
+          model_param.with_box3d(), *yolo_blobs.det1_ori_blob);
   const float *dim_data = get_gpu_data(
-          model_param.with_box3d(), *yolo_blobs.dim_blob);
+          model_param.with_box3d(), *yolo_blobs.det1_dim_blob);
 
   const float *lof_data = get_gpu_data(
           model_param.with_frbox(), *yolo_blobs.lof_blob);
@@ -484,6 +489,12 @@ void get_objects_gpu(const YoloBlobs &yolo_blobs,
   float *res_box_data = yolo_blobs.res_box_blob->mutable_gpu_data();
   float *res_cls_data = yolo_blobs.res_cls_blob->mutable_gpu_data();
   const int thread_size = 512;
+
+  std::cout << "width : " << width << std::endl;
+  std::cout << "height : " << height << std::endl;
+  AINFO << "num_anchor : " << num_anchor;
+  AINFO << "num_classes : " << num_classes;
+  AINFO << "num_areas : " << model_param.num_areas();
 
   int block_size = (num_candidates + thread_size - 1) / thread_size;
   get_object_kernel <<< block_size, thread_size, 0, stream >>> (
@@ -525,6 +536,7 @@ void get_objects_gpu(const YoloBlobs &yolo_blobs,
                 overlapped,
                 idx_sm,
                 stream);
+  printf("========rest_indices. %d\n", rest_indices.size());
   for (int k = 0; k < num_classes; ++k) {
     apply_nms_gpu(res_box_data,
                   cpu_cls_data + k * num_candidates,
@@ -543,7 +555,7 @@ void get_objects_gpu(const YoloBlobs &yolo_blobs,
     conf_scores.insert(std::make_pair(types[k], conf_score));
     cudaStreamSynchronize(stream);
   }
-
+  printf("=============num_kept: %d\n", num_kept);
   objects->clear();
 
   if (num_kept == 0) {

@@ -8,14 +8,14 @@ detector_param {
   camera_name : "front_6mm"
   #camera_name : "spherical_left_forward"
 }
-detector_param {
-  plugin_param{
-    name : "YoloObstacleDetector"
-    root_dir : "/apollo/modules/perception/production/data/perception/camera/models/yolo_obstacle_detector"
-    config_file : "config.pt"
-  }
-  camera_name : "front_12mm"
-}
+#detector_param {
+#  plugin_param{
+#    name : "YoloObstacleDetector"
+#    root_dir : "/apollo/modules/perception/production/data/perception/camera/models/yolo_obstacle_detector"
+#    config_file : "config.pt"
+#  }
+#  camera_name : "front_12mm"
+#}
 
 tracker_param {
   plugin_param{

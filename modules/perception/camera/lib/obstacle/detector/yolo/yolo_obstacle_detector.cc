@@ -91,11 +91,12 @@ bool YoloObstacleDetector::InitNet(const yolo::YoloParam &yolo_param,
   // init Net
   auto const &net_param = yolo_param.net_param();
   input_names.push_back(net_param.input_blob());
-  output_names.push_back(net_param.loc_blob());
-  output_names.push_back(net_param.obj_blob());
-  output_names.push_back(net_param.cls_blob());
-  output_names.push_back(net_param.ori_blob());
-  output_names.push_back(net_param.dim_blob());
+  output_names.push_back(net_param.det1_loc_blob());
+  output_names.push_back(net_param.det1_obj_blob());
+  output_names.push_back(net_param.det1_cls_blob());
+  output_names.push_back(net_param.det1_ori_conf_blob());
+  output_names.push_back(net_param.det1_ori_blob());
+  output_names.push_back(net_param.det1_dim_blob());
   output_names.push_back(net_param.lof_blob());
   output_names.push_back(net_param.lor_blob());
   output_names.push_back(net_param.brvis_blob());
@@ -123,32 +124,40 @@ bool YoloObstacleDetector::InitNet(const yolo::YoloParam &yolo_param,
   std::vector<int> shape = {1, height_, width_, 3};
   std::map<std::string, std::vector<int>> shape_map{
       {net_param.input_blob(), shape}};
-
+  AINFO << "inference->Init()";
   if (!inference_->Init(shape_map)) {
     return false;
   }
+  AINFO << "inference_->Infer()";
   inference_->Infer();
+  AINFO << "after inference_->Infer()";
   return true;
 }
 
 void YoloObstacleDetector::InitYoloBlob(const yolo::NetworkParam &net_param) {
-  auto obj_blob = inference_->get_blob(net_param.obj_blob());
+  auto obj_blob = inference_->get_blob(net_param.det1_obj_blob());
   int output_height = obj_blob->shape(1);
   int output_width = obj_blob->shape(2);
   int obj_size =
       output_height * output_width * static_cast<int>(anchors_.size()) / 2;
+  AINFO << "Initializing res_box_blob.";
   yolo_blobs_.res_box_blob.reset(
       new base::Blob<float>(1, 1, obj_size, kBoxBlockSize));
+  AINFO << "Initializing res_cls_blob.";
   yolo_blobs_.res_cls_blob.reset(new base::Blob<float>(
       1, 1, static_cast<int>(types_.size() + 1), obj_size));
   yolo_blobs_.res_cls_blob->cpu_data();
+  AINFO << "Initializing overlapped_.";
   overlapped_.reset(
       new base::Blob<bool>(std::vector<int>{obj_k_, obj_k_}, true));
   overlapped_->cpu_data();
   overlapped_->gpu_data();
+  AINFO << "Initializing idx_sm_.";
   idx_sm_.reset(new base::Blob<int>(std::vector<int>{obj_k_}, true));
+  AINFO << "Initializing anchor_blob.";
   yolo_blobs_.anchor_blob.reset(
       new base::Blob<float>(1, 1, static_cast<int>(anchors_.size() / 2), 2));
+  AINFO << "Initializing expand_blob.";
   yolo_blobs_.expand_blob.reset(
       new base::Blob<float>(1, 1, 1, static_cast<int>(expands_.size())));
   auto expand_cpu_data = yolo_blobs_.expand_blob->mutable_cpu_data();
@@ -159,16 +168,20 @@ void YoloObstacleDetector::InitYoloBlob(const yolo::NetworkParam &net_param) {
 
   image_.reset(new base::Image8U(height_, width_, base::Color::RGB));
 
-  yolo_blobs_.loc_blob =
-      inference_->get_blob(yolo_param_.net_param().loc_blob());
-  yolo_blobs_.obj_blob =
-      inference_->get_blob(yolo_param_.net_param().obj_blob());
-  yolo_blobs_.cls_blob =
-      inference_->get_blob(yolo_param_.net_param().cls_blob());
-  yolo_blobs_.ori_blob =
-      inference_->get_blob(yolo_param_.net_param().ori_blob());
-  yolo_blobs_.dim_blob =
-      inference_->get_blob(yolo_param_.net_param().dim_blob());
+  yolo_blobs_.det1_loc_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_loc_blob());
+  yolo_blobs_.det1_obj_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_obj_blob());
+  yolo_blobs_.det1_cls_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_cls_blob());
+  yolo_blobs_.det1_ori_conf_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_ori_conf_blob());
+  yolo_blobs_.det1_ori_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_ori_blob());
+  yolo_blobs_.det1_dim_blob =
+      inference_->get_blob(yolo_param_.net_param().det1_dim_blob());
+
+/***
   yolo_blobs_.lof_blob =
       inference_->get_blob(yolo_param_.net_param().lof_blob());
   yolo_blobs_.lor_blob =
@@ -193,6 +206,7 @@ void YoloObstacleDetector::InitYoloBlob(const yolo::NetworkParam &net_param) {
       inference_->get_blob(yolo_param_.net_param().visible_ratio_blob());
   yolo_blobs_.cut_off_ratio_blob =
       inference_->get_blob(yolo_param_.net_param().cut_off_ratio_blob());
+***/
 }
 
 bool YoloObstacleDetector::Init(const ObstacleDetectorInitOptions &options) {
@@ -231,13 +245,17 @@ bool YoloObstacleDetector::Init(const ObstacleDetectorInitOptions &options) {
     return false;
   }
   CHECK(expands_.size() == types_.size());
+  AINFO << "Initializing Network.";
   if (!InitNet(yolo_param_, model_root)) {
     return false;
   }
+  AINFO << "Initializing Blobs.";
   InitYoloBlob(yolo_param_.net_param());
+  AINFO << "Initializing Feature Extractor";
   if (!InitFeatureExtractor(model_root)) {
     return false;
   }
+  AINFO << "Feature Extractor Done";
   return true;
 }
 
@@ -285,8 +303,13 @@ bool YoloObstacleDetector::Detect(const ObstacleDetectorOptions &options,
   AINFO << "Resize: " << static_cast<double>(timer.Toc()) * 0.001 << "ms";
 
   /////////////////////////// detection part ///////////////////////////
+  AINFO << "DETECTOR doing Infer().";
   inference_->Infer();
-
+  AINFO << "DETECTOR getting object.";
+  AINFO << "num_anchor = " << yolo_blobs_.anchor_blob->shape(2);
+  AINFO << "num_classes = " << types_.size(); 
+  AINFO << "height = " << yolo_blobs_.det1_obj_blob->shape(1);
+  AINFO << "width = " << yolo_blobs_.det1_obj_blob->shape(2);
   get_objects_gpu(yolo_blobs_, stream_, types_, nms_, yolo_param_.model_param(),
                   light_vis_conf_threshold_, light_swt_conf_threshold_,
                   overlapped_.get(), idx_sm_.get(), &(frame->detected_objects));

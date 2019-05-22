@@ -31,6 +31,8 @@ bool TrackingFeatureExtractor::Init(
   input_width_ =
       init_options.input_width == 0 ? feat_width : init_options.input_width;
   tracking_feature::FeatureParam feat_param;
+  AINFO << "feature extractor path ==========: " << init_options.root_dir;
+  AINFO << init_options.conf_file;
   std::string config_path = cyber::common::GetAbsolutePath(
       init_options.root_dir, init_options.conf_file);
   if (!cyber::common::GetProtoFromFile(config_path, &feat_param)) {

@@ -43,6 +43,7 @@ bool ObstacleCameraPerception::Init(
   std::string config_file =
       GetAbsolutePath(options.root_dir, options.conf_file);
   config_file = GetAbsolutePath(work_root, config_file);
+  AINFO << "PERCEPTION CONFIG_FILE: " << config_file;
   CHECK(cyber::common::GetProtoFromFile(config_file, &perception_param_))
       << "Read config failed: ";
   CHECK(inference::CudaUtil::set_device_id(perception_param_.gpu_id()));
@@ -51,6 +52,7 @@ bool ObstacleCameraPerception::Init(
   CHECK(perception_param_.detector_param_size() > 0)
       << "Failed to init detector.";
   // Init detector
+  AINFO << "PERCEPTION: Initializing Detector.";
   base::BaseCameraModelPtr model;
   for (int i = 0; i < perception_param_.detector_param_size(); ++i) {
     ObstacleDetectorInitOptions detector_init_options;
@@ -67,17 +69,20 @@ bool ObstacleCameraPerception::Init(
     name_intrinsic_map_.insert(std::pair<std::string, Eigen::Matrix3f>(
         detector_param.camera_name(), pinhole->get_intrinsic_params()));
     detector_init_options.base_camera_model = model;
+    AINFO << "PERCEPTION: Setting shared Pointer for Detector.";
     std::shared_ptr<BaseObstacleDetector> detector_ptr(
         BaseObstacleDetectorRegisterer::GetInstanceByName(plugin_param.name()));
     name_detector_map_.insert(
         std::pair<std::string, std::shared_ptr<BaseObstacleDetector>>(
             detector_param.camera_name(), detector_ptr));
     CHECK(name_detector_map_.at(detector_param.camera_name()) != nullptr);
+    AINFO << "PERCEPTION: Runing Detector Init.";
     CHECK(name_detector_map_.at(detector_param.camera_name())
               ->Init(detector_init_options))
         << "Failed to init: " << plugin_param.name();
   }
 
+  AINFO << "PERCEPTION: Initializing Tracker.";
   // Init tracker
   CHECK(perception_param_.has_tracker_param()) << "Failed to init tracker.";
   {
@@ -112,6 +117,7 @@ bool ObstacleCameraPerception::Init(
         << "Failed to init: " << plugin_param.name();
   }
 
+  AINFO << "PERCEPTION: Initializing Postprocessor.";
   // Init obstacle postprocessor
   CHECK(perception_param_.has_postprocessor_param())
       << "Failed to init obstacle postprocessor.";
@@ -372,6 +378,7 @@ bool ObstacleCameraPerception::Perception(
   std::shared_ptr<BaseObstacleDetector> detector =
       name_detector_map_.at(frame->data_provider->sensor_name());
 
+  AINFO << "PERCEPTION: running Detection.";
   if (!detector->Detect(detector_options, frame)) {
     AERROR << "Failed to detect.";
     return false;
