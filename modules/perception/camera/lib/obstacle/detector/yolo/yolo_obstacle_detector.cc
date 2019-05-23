@@ -90,12 +90,25 @@ bool YoloObstacleDetector::InitNet(const yolo::YoloParam &yolo_param,
   std::vector<std::string> output_names;
   // init Net
   auto const &net_param = yolo_param.net_param();
+  input_names.push_back(net_param.input_blob());
   output_names.push_back(net_param.det1_loc_blob());
   output_names.push_back(net_param.det1_obj_blob());
   output_names.push_back(net_param.det1_cls_blob());
   output_names.push_back(net_param.det1_ori_conf_blob());
   output_names.push_back(net_param.det1_ori_blob());
   output_names.push_back(net_param.det1_dim_blob());
+  output_names.push_back(net_param.det2_loc_blob());
+  output_names.push_back(net_param.det2_obj_blob());
+  output_names.push_back(net_param.det2_cls_blob());
+  output_names.push_back(net_param.det2_ori_conf_blob());
+  output_names.push_back(net_param.det2_ori_blob());
+  output_names.push_back(net_param.det2_dim_blob());
+  output_names.push_back(net_param.det3_loc_blob());
+  output_names.push_back(net_param.det3_obj_blob());
+  output_names.push_back(net_param.det3_cls_blob());
+  output_names.push_back(net_param.det3_ori_conf_blob());
+  output_names.push_back(net_param.det3_ori_blob());
+  output_names.push_back(net_param.det3_dim_blob());
   output_names.push_back(net_param.lof_blob());
   output_names.push_back(net_param.lor_blob());
   output_names.push_back(net_param.brvis_blob());
@@ -171,6 +184,30 @@ void YoloObstacleDetector::InitYoloBlob(const yolo::NetworkParam &net_param) {
       inference_->get_blob(yolo_param_.net_param().det1_ori_blob());
   yolo_blobs_.det1_dim_blob =
       inference_->get_blob(yolo_param_.net_param().det1_dim_blob());
+  yolo_blobs_.det2_loc_blob =
+      inference_->get_blob(yolo_param_.net_param().det2_loc_blob());
+  yolo_blobs_.det2_obj_blob =
+      inference_->get_blob(yolo_param_.net_param().det2_obj_blob());
+  yolo_blobs_.det2_cls_blob =
+      inference_->get_blob(yolo_param_.net_param().det2_cls_blob());
+  yolo_blobs_.det2_ori_conf_blob =
+      inference_->get_blob(yolo_param_.net_param().det2_ori_conf_blob());
+  yolo_blobs_.det2_ori_blob =
+      inference_->get_blob(yolo_param_.net_param().det2_ori_blob());
+  yolo_blobs_.det2_dim_blob =
+      inference_->get_blob(yolo_param_.net_param().det2_dim_blob());
+  yolo_blobs_.det3_loc_blob =
+      inference_->get_blob(yolo_param_.net_param().det3_loc_blob());
+  yolo_blobs_.det3_obj_blob =
+      inference_->get_blob(yolo_param_.net_param().det3_obj_blob());
+  yolo_blobs_.det3_cls_blob =
+      inference_->get_blob(yolo_param_.net_param().det3_cls_blob());
+  yolo_blobs_.det3_ori_conf_blob =
+      inference_->get_blob(yolo_param_.net_param().det3_ori_conf_blob());
+  yolo_blobs_.det3_ori_blob =
+      inference_->get_blob(yolo_param_.net_param().det3_ori_blob());
+  yolo_blobs_.det3_dim_blob =
+      inference_->get_blob(yolo_param_.net_param().det3_dim_blob());
 
 /**
   yolo_blobs_.lof_blob =
