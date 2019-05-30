@@ -145,11 +145,23 @@ bool YoloObstacleDetector::InitNet(const yolo::YoloParam &yolo_param,
 }
 
 void YoloObstacleDetector::InitYoloBlob(const yolo::NetworkParam &net_param) {
-  auto obj_blob = inference_->get_blob(net_param.det1_obj_blob());
-  int output_height = obj_blob->shape(1);
-  int output_width = obj_blob->shape(2);
+  auto obj_blob_scale1 = inference_->get_blob(net_param.det1_obj_blob());
+  auto obj_blob_scale2 = inference_->get_blob(net_param.det2_obj_blob());
+  auto obj_blob_scale3 = inference_->get_blob(net_param.det3_obj_blob());
+  int output_height_scale1 = obj_blob_scale1->shape(1);
+  int output_width_scale1 = obj_blob_scale1->shape(2);
+  int output_height_scale2 = obj_blob_scale2->shape(1);
+  int output_width_scale2 = obj_blob_scale2->shape(2);
+  int output_height_scale3 = obj_blob_scale3->shape(1);
+  int output_width_scale3 = obj_blob_scale3->shape(2);
   int obj_size =
-      output_height * output_width * static_cast<int>(anchors_.size()) / 2;
+      (output_height_scale1 * output_width_scale1 +
+       output_height_scale2 * output_width_scale2 +
+       output_height_scale3 * output_width_scale3) *
+      static_cast<int>(anchors_.size()) / 2 / 3;
+  AINFO << "==============anchors_size: " << anchors_.size();
+  AINFO << "==============output_width_scale3: " << output_width_scale3;
+  AINFO << "==============obj_size: " << obj_size;
   yolo_blobs_.res_box_blob.reset(
       new base::Blob<float>(1, 1, obj_size, kBoxBlockSize));
   yolo_blobs_.res_cls_blob.reset(new base::Blob<float>(
@@ -328,7 +340,7 @@ bool YoloObstacleDetector::Detect(const ObstacleDetectorOptions &options,
 
   /////////////////////////// detection part ///////////////////////////
   inference_->Infer();
-
+  AINFO << "Network Forward: " << static_cast<double>(timer.Toc()) * 0.001 << "ms";
   get_objects_gpu(yolo_blobs_, stream_, types_, nms_, yolo_param_.model_param(),
                   light_vis_conf_threshold_, light_swt_conf_threshold_,
                   overlapped_.get(), idx_sm_.get(), &(frame->detected_objects));

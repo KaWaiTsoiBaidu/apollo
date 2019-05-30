@@ -9,8 +9,8 @@ layer {
   input_param {
     shape {
       dim: 1
-      dim: 800
-      dim: 1440
+      dim: 352
+      dim: 608
       dim: 3
     }
   }

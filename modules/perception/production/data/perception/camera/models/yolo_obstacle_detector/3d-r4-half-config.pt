@@ -1,18 +1,18 @@
 model_param {
   model_name: "./3d-r4-half"
   model_type: "CaffeNet"
-  weight_file: "caffe.caffemodel"
+  weight_file: "caffe_small_xywh.caffemodel"
   proto_file: "my_deploy.pt"
   anchors_file: "anchors.txt"
   types_file: "types.txt"
   calibratetable_root: "./3d-r4-half"
-  confidence_threshold: 0.4
+  confidence_threshold: 0.0 #0.6
   offset_ratio: 0.0 #0.288889
   cropped_ratio: 1.0 #0.711111
-  resized_width: 1440
+  resized_width: 608
   aligned_pixel: 32
-  min_2d_height: 10
-  min_3d_height: 0.1
+  min_2d_height: 0 #10
+  min_3d_height: 0.0 #0.1
   ori_cycle: 2
   with_box3d: true
   light_swt_conf_threshold: 0
@@ -46,7 +46,8 @@ net_param {
 }
 nms_param {
   type: "NormalNMS"
-  threshold: 0.5
+  threshold: 1.0 #0.6
   sigma: 0.4
-  inter_cls_nms_thresh: 0.6
+  inter_cls_conf_thresh: 0.5 #0.8
+  inter_cls_nms_thresh: 0.3 #0.4
 }
