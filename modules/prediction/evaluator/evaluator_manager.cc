@@ -34,6 +34,7 @@
 #include "modules/prediction/evaluator/pedestrian/pedestrian_interaction_evaluator.h"
 #include "modules/prediction/evaluator/vehicle/cost_evaluator.h"
 #include "modules/prediction/evaluator/vehicle/cruise_mlp_evaluator.h"
+#include "modules/prediction/evaluator/vehicle/junction_map_evaluator.h"
 #include "modules/prediction/evaluator/vehicle/junction_mlp_evaluator.h"
 #include "modules/prediction/evaluator/vehicle/lane_scanning_evaluator.h"
 #include "modules/prediction/evaluator/vehicle/mlp_evaluator.h"
@@ -93,6 +94,7 @@ void EvaluatorManager::RegisterEvaluators() {
   RegisterEvaluator(ObstacleConf::CYCLIST_KEEP_LANE_EVALUATOR);
   RegisterEvaluator(ObstacleConf::LANE_SCANNING_EVALUATOR);
   RegisterEvaluator(ObstacleConf::PEDESTRIAN_INTERACTION_EVALUATOR);
+  RegisterEvaluator(ObstacleConf::JUNCTION_MAP_EVALUATOR);
 }
 
 void EvaluatorManager::Init(const PredictionConf& config) {
@@ -179,8 +181,6 @@ void EvaluatorManager::Run() {
     if (FLAGS_prediction_offline_mode == PredictionConstants::kDumpFrameEnv) {
       return;
     }
-  }
-  if (FLAGS_enable_semantic_map) {
     SemanticMap::Instance()->RunCurrFrame(obstacle_id_history_map_);
   }
 
@@ -227,11 +227,25 @@ void EvaluatorManager::EvaluateObstacle(Obstacle* obstacle,
     case PerceptionObstacle::VEHICLE: {
       if (obstacle->HasJunctionFeatureWithExits() &&
           !obstacle->IsCloseToJunctionExit()) {
+        if (obstacle->latest_feature().priority().priority() ==
+            ObstaclePriority::CAUTION) {
+          evaluator = GetEvaluator(ObstacleConf::JUNCTION_MAP_EVALUATOR);
+          CHECK_NOTNULL(evaluator);
+          if (evaluator->Evaluate(obstacle)) {
+            break;
+          }
+        }
         evaluator = GetEvaluator(vehicle_in_junction_evaluator_);
         CHECK_NOTNULL(evaluator);
+        evaluator->Evaluate(obstacle);
       } else if (obstacle->IsOnLane()) {
         evaluator = GetEvaluator(vehicle_on_lane_evaluator_);
         CHECK_NOTNULL(evaluator);
+        if (evaluator->GetName() == "LANE_SCANNING_EVALUATOR") {
+          evaluator->Evaluate(obstacle, dynamic_env);
+        } else {
+          evaluator->Evaluate(obstacle);
+        }
       } else {
         ADEBUG << "Obstacle: " << obstacle->id()
                << " is neither on lane, nor in junction. Skip evaluating.";
@@ -242,31 +256,23 @@ void EvaluatorManager::EvaluateObstacle(Obstacle* obstacle,
       if (obstacle->IsOnLane()) {
         evaluator = GetEvaluator(cyclist_on_lane_evaluator_);
         CHECK_NOTNULL(evaluator);
+        evaluator->Evaluate(obstacle);
       }
       break;
     }
     case PerceptionObstacle::PEDESTRIAN: {
       evaluator = GetEvaluator(pedestrian_evaluator_);
       CHECK_NOTNULL(evaluator);
+      evaluator->Evaluate(obstacle);
       break;
     }
     default: {
       if (obstacle->IsOnLane()) {
         evaluator = GetEvaluator(default_on_lane_evaluator_);
         CHECK_NOTNULL(evaluator);
+        evaluator->Evaluate(obstacle);
       }
       break;
-    }
-  }
-
-  // Evaluate using the selected evaluator.
-  if (evaluator != nullptr) {
-    if (evaluator->GetName() == "LANE_SCANNING_EVALUATOR") {
-      // For evaluators that need surrounding obstacles' info.
-      evaluator->Evaluate(obstacle, dynamic_env);
-    } else {
-      // For evaluators that don't need surrounding info.
-      evaluator->Evaluate(obstacle);
     }
   }
 }
@@ -323,6 +329,10 @@ void EvaluatorManager::BuildObstacleIdHistoryMap() {
 
 void EvaluatorManager::DumpCurrentFrameEnv() {
   FrameEnv curr_frame_env;
+  auto obstacles_container =
+      ContainerManager::Instance()->GetContainer<ObstaclesContainer>(
+          AdapterConfig::PERCEPTION_OBSTACLES);
+  curr_frame_env.set_timestamp(obstacles_container->timestamp());
   for (const auto obstacle_id_history_pair : obstacle_id_history_map_) {
     int id = obstacle_id_history_pair.first;
     if (id != -1) {
@@ -370,6 +380,10 @@ std::unique_ptr<Evaluator> EvaluatorManager::CreateEvaluator(
     }
     case ObstacleConf::PEDESTRIAN_INTERACTION_EVALUATOR: {
       evaluator_ptr.reset(new PedestrianInteractionEvaluator());
+      break;
+    }
+    case ObstacleConf::JUNCTION_MAP_EVALUATOR: {
+      evaluator_ptr.reset(new JunctionMapEvaluator());
       break;
     }
     default: { break; }

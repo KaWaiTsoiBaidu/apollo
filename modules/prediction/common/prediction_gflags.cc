@@ -136,6 +136,9 @@ DEFINE_string(evaluator_vehicle_rnn_file,
 DEFINE_string(torch_vehicle_junction_mlp_file,
               "/apollo/modules/prediction/data/junction_mlp_vehicle_model.pt",
               "Vehicle junction MLP model file");
+DEFINE_string(torch_vehicle_junction_map_file,
+              "/apollo/modules/prediction/data/junction_map_vehicle_model.pt",
+              "Vehicle junction map model file");
 DEFINE_string(torch_vehicle_cruise_go_file,
               "/apollo/modules/prediction/data/cruise_go_vehicle_model.pt",
               "Vehicle cruise go model file");
@@ -180,7 +183,7 @@ DEFINE_uint32(junction_historical_frame_length, 5,
               "that the junction model will look at.");
 DEFINE_double(junction_exit_lane_threshold, 0.1,
               "If a lane extends out of the junction by this value,"
-              "consider it as a exit_lane.");
+              "consider it as an exit_lane.");
 DEFINE_double(distance_beyond_junction, 0.5,
               "If the obstacle is in junction more than this threshold,"
               "consider it in junction.");

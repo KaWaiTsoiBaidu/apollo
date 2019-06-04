@@ -46,6 +46,7 @@ using cyber::CreateNode;
 using cyber::common::EnsureDirectory;
 using cyber::common::GetFileName;
 using cyber::common::PathExists;
+using cyber::common::RemoveAllFiles;
 using cyber::record::HeaderBuilder;
 using cyber::record::Recorder;
 using cyber::record::RecordFileReader;
@@ -104,6 +105,10 @@ bool RealtimeRecordProcessor::Init(const SmartRecordTrigger& trigger_conf) {
            << restored_output_dir_;
     return false;
   }
+  if (!RemoveAllFiles(source_record_dir_)) {
+    AERROR << "unable to clear input dir: " << source_record_dir_;
+    return false;
+  }
   // Init recorder
   cyber::Init("smart_recorder");
   smart_recorder_node_ =
@@ -137,7 +142,7 @@ bool RealtimeRecordProcessor::Process() {
   // Recorder goes first
   recorder_->Start();
   PublishStatus(RecordingState::RECORDING, "smart recorder started");
-  std::shared_ptr<std::thread> monitor_thread_ =
+  std::shared_ptr<std::thread> monitor_thread =
       std::make_shared<std::thread>([this]() { this->MonitorStatus(); });
   // Now fast reader follows and reacts for any events
   std::string record_path;
@@ -146,8 +151,10 @@ bool RealtimeRecordProcessor::Process() {
       AINFO << "record reader " << record_path << " reached end, exit now";
       break;
     }
-    RecordViewer viewer(std::make_shared<RecordReader>(record_path), 0,
-                        UINT64_MAX, ChannelPool::Instance()->GetAllChannels());
+    auto reader = std::make_shared<RecordReader>(record_path);
+    reader->SetFlushMode(true);
+    RecordViewer viewer(reader, 0, UINT64_MAX,
+                        ChannelPool::Instance()->GetAllChannels());
     AINFO << "checking " << record_path << ": " << viewer.begin_time() << " - "
           << viewer.end_time();
     if (restore_reader_time_ == 0) {
@@ -164,9 +171,9 @@ bool RealtimeRecordProcessor::Process() {
   } while (!is_terminating_);
   // Try restore the rest of messages one last time
   RestoreMessage(UINT64_MAX);
-  if (monitor_thread_ && monitor_thread_->joinable()) {
-    monitor_thread_->join();
-    monitor_thread_ = nullptr;
+  if (monitor_thread && monitor_thread->joinable()) {
+    monitor_thread->join();
+    monitor_thread = nullptr;
   }
   PublishStatus(RecordingState::STOPPED, "smart recorder stopped");
   return true;
@@ -187,7 +194,7 @@ void RealtimeRecordProcessor::MonitorStatus() {
   AINFO << "wait for a while trying to complete the restore work";
   std::this_thread::sleep_for(std::chrono::milliseconds(recorder_wait_time_));
   is_terminating_ = true;
-  PublishStatus(RecordingState::RECORDING, "smart recorder terminating");
+  PublishStatus(RecordingState::TERMINATING, "smart recorder terminating");
 }
 
 void RealtimeRecordProcessor::PublishStatus(const RecordingState state,
@@ -223,12 +230,13 @@ void RealtimeRecordProcessor::RestoreMessage(const uint64_t message_time) {
   const uint64_t target_end = std::max(
       interval.end_time,
       message_time - static_cast<uint64_t>(max_backward_time_ * 1000000000UL));
-  if (target_end <=
-      restore_reader_time_ +
-          static_cast<uint64_t>(min_restore_chunk_ * 1000000000UL)) {
+  const bool small_channels_only = restore_reader_time_ >= interval.end_time;
+  if (small_channels_only &&
+      target_end <=
+          restore_reader_time_ +
+              static_cast<uint64_t>(min_restore_chunk_ * 1000000000UL)) {
     return;
   }
-  const bool small_channels_only = interval.end_time == 0;
   do {
     if (!IsRecordValid(restore_path_)) {
       AWARN << "invalid restore path " << restore_path_ << ", exit";
@@ -237,6 +245,7 @@ void RealtimeRecordProcessor::RestoreMessage(const uint64_t message_time) {
     AINFO << "target restoring " << restore_path_ << ": "
           << restore_reader_time_ << " - " << target_end;
     auto reader = std::make_shared<RecordReader>(restore_path_);
+    reader->SetFlushMode(true);
     restore_reader_time_ =
         std::max(restore_reader_time_, reader->header().begin_time());
     if (restore_reader_time_ > target_end ||
@@ -252,9 +261,11 @@ void RealtimeRecordProcessor::RestoreMessage(const uint64_t message_time) {
       if ((!small_channels_only && msg.time >= interval.begin_time &&
            msg.time <= interval.end_time) ||
           ShouldRestore(msg)) {
-        writer_->WriteChannel(msg.channel_name,
-                              reader->GetMessageType(msg.channel_name),
-                              reader->GetProtoDesc(msg.channel_name));
+        if (writer_->IsNewChannel(msg.channel_name)) {
+          writer_->WriteChannel(msg.channel_name,
+                                reader->GetMessageType(msg.channel_name),
+                                reader->GetProtoDesc(msg.channel_name));
+        }
         writer_->WriteMessage(msg.channel_name, msg.content, msg.time);
       }
     }

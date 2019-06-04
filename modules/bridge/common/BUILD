@@ -22,6 +22,37 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "util",
+    srcs = [
+        "util.cc",
+    ],
+    hdrs = [
+        "util.h",
+    ],
+    deps = [
+        ":bridge_buffer",
+    ],
+)
+
+cc_library(
+    name = "macro",
+    hdrs = [
+        "macro.h",
+    ],
+)
+
+cc_library(
+    name = "bridge_header",
+    srcs = [
+        "bridge_header.cc",
+    ],
+    hdrs = [
+        "bridge_header.h",
+        "bridge_header_item.h",
+    ],
+)
+
 cc_test(
     name = "bridge_buffer_test",
     size = "small",
@@ -29,7 +60,7 @@ cc_test(
         "bridge_buffer_test.cc",
     ],
     deps = [
-        "bridge_buffer",
+        ":bridge_buffer",
         "@gtest//:main",
     ],
 )
